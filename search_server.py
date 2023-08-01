@@ -11,25 +11,27 @@ import urllib.parse
 
 import bs4
 import chardet
-import fire
+# mport fire
 import html2text
 import googlesearch
 import parlai.agents.rag.retrieve_api
 import rich
 import rich.markup
 import requests
+import threading
 
 
 print = rich.print
 
 _DEFAULT_HOST = "0.0.0.0"
-_DEFAULT_PORT = 8080
+_DEFAULT_PORT = 8089
 _DELAY_SEARCH = 1.0  # Making this too low will get you IP banned
 _STYLE_GOOD = "[green]"
 _STYLE_SKIP = ""
 _CLOSE_STYLE_GOOD = "[/]" if _STYLE_GOOD else ""
 _CLOSE_STYLE_SKIP = "[/]" if _STYLE_SKIP else ""
 _REQUESTS_GET_TIMEOUT = 5
+
 
 def _parse_host(host: str) -> Tuple[str, int]:
     """ Parse the host string. 
@@ -53,7 +55,7 @@ def _get_and_parse(url: str) -> Dict[str, str]:
     else:
         resp.encoding = resp.apparent_encoding
         page = resp.text
-    
+
     ###########################################################################
     # Prepare the title
     ###########################################################################
@@ -61,9 +63,10 @@ def _get_and_parse(url: str) -> Dict[str, str]:
     soup = bs4.BeautifulSoup(page, features="lxml")
     pre_rendered = soup.find("title")
     output_dict["title"] = (
-        html.unescape(pre_rendered.renderContents().decode()) if pre_rendered else ""
+        html.unescape(pre_rendered.renderContents().decode()
+                      ) if pre_rendered else ""
     )
-    
+
     output_dict["title"] = (
         output_dict["title"].replace("\n", "").replace("\r", "")
     )
@@ -94,7 +97,8 @@ class SearchABC(http.server.BaseHTTPRequestHandler):
 
         # Figure out the encoding
         if "charset=" in self.headers["Content-Type"]:
-            charset = re.match(r".*charset=([\w_\-]+)\b.*", self.headers["Content-Type"]).group(1)
+            charset = re.match(
+                r".*charset=([\w_\-]+)\b.*", self.headers["Content-Type"]).group(1)
         else:
             detector = chardet.UniversalDetector()
             detector.feed(post_data)
@@ -118,7 +122,7 @@ class SearchABC(http.server.BaseHTTPRequestHandler):
         # Over query a little bit in case we find useless URLs
         content = []
         dupe_detection_set = set()
-        
+
         # Search until we have n valid entries
         for url in self.search(q=q, n=n):
             if len(content) >= n:
@@ -140,7 +144,7 @@ class SearchABC(http.server.BaseHTTPRequestHandler):
             else:
                 reason_content_empty = False
                 reason_already_seen_content = False
-            
+
             reasons = dict(
                 reason_empty_response=reason_empty_response,
                 reason_content_empty=reason_content_empty,
@@ -178,12 +182,12 @@ class SearchABC(http.server.BaseHTTPRequestHandler):
                     }
                 )
                 print(f" {_STYLE_SKIP}x{_CLOSE_STYLE_SKIP} Excluding an URL because `{_STYLE_SKIP}{reason_string}{_CLOSE_STYLE_SKIP}`:\n"
-                      f"   {url}") 
+                      f"   {url}")
 
         ###############################################################
         # Prepare the answer and send it
         ###############################################################
-        content = content[:n]  
+        content = content[:n]
         output = json.dumps(dict(response=content)).encode("utf-8")
         self.send_response(200)
         self.send_header("Content-type", "text/html")
@@ -205,8 +209,12 @@ class GoogleSearchServer(SearchABC):
 
 
 class Application:
+
+    def __init__(self, host: str = _DEFAULT_HOST):
+        threading.Thread(target=self.serve, args=(host)).start()
+
     def serve(
-        self, host: str = _DEFAULT_HOST) -> NoReturn:
+            self, host: str = _DEFAULT_HOST) -> NoReturn:
         """ Main entry point: Start the server.
         Arguments:
             host (str):
@@ -232,7 +240,7 @@ class Application:
         """
         print(_get_and_parse(url))
 
-    def test_server(self, query: str, n: int, host : str = _DEFAULT_HOST) -> None:
+    def test_server(self, query: str, n: int, host: str = _DEFAULT_HOST) -> None:
         """ Creates a thin fake client to test a server that is already up.
         Expects a server to have already been started with `python search_server.py serve [options]`.
         Creates a retriever client the same way ParlAi client does it for its chat bot, then
@@ -254,5 +262,5 @@ class Application:
         print("Done.")
 
 
-if __name__ == "__main__":
-    fire.Fire(Application)
+# if __name__ == "__main__":
+    # fire.Fire(Application)
